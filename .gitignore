@@ -1,0 +1,12 @@
+/bin
+
+/vendor/
+*.test
+*.exe
+*.exe~
+*.out
+*.prof
+._*
+script.lox
+log.txt
+main
