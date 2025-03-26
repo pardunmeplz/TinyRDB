@@ -1,3 +1,3 @@
-module godb
+module relationalDatabase
 
 go 1.24.0
