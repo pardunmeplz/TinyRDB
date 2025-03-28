@@ -7,30 +7,47 @@ import (
 )
 
 // basic page allocator
-
 type PageAllocator struct {
 	PageSize int64
 	Database *os.File
 }
 
 // the first page will hold the metadata for the database
-// fiest 8 bytes of the metadata will be an id to a free page (unused page)
+const (
+	FreeListHeadOffset = 0
+	TotalPageOffset    = 8
+	PageSizeOffset     = 16
+)
 
-func (pageAllocator *PageAllocator) Initialize() error {
+func (pageAllocator *PageAllocator) Initialize(file string, pageSize uint64) error {
 	var err error
 	// 4 kb page sizes
 	pageAllocator.PageSize = 4096
-	pageAllocator.Database, err = os.OpenFile("data.db", os.O_RDWR|os.O_CREATE, 0666)
+	pageAllocator.Database, err = os.OpenFile(file, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
-	info, err := pageAllocator.Database.Stat()
 
+	info, err := pageAllocator.Database.Stat()
 	if err != nil || info.Size() != 0 {
 		return err
 	}
+
 	page := make([]byte, pageAllocator.PageSize)
 	_, err = pageAllocator.Database.Write(page)
+
+	err = pageAllocator.WriteMetadata(FreeListHeadOffset, 0)
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WriteMetadata(TotalPageOffset, 1)
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WriteMetadata(PageSizeOffset, uint64(pageAllocator.PageSize))
+	if err != nil {
+		return err
+	}
 
 	return err
 }
@@ -41,17 +58,32 @@ func (pageAllocator *PageAllocator) AllocatePage() (uint64, error) {
 		return 0, err
 	}
 	if freePage == 0 {
+		// add page
 		page := make([]byte, pageAllocator.PageSize)
-		info, err := pageAllocator.Database.Stat()
-		id := uint64(info.Size() / pageAllocator.PageSize)
+		pages, err := pageAllocator.ReadMetadata(TotalPageOffset)
+		if err != nil {
+			return 0, err
+		}
+
+		id := pages
 		_, err = pageAllocator.Database.Write(page)
+
+		if err != nil {
+			return 0, err
+		}
+
+		err = pageAllocator.WriteMetadata(TotalPageOffset, pages+1)
 		return id, err
 	}
+	// reuse page
 
 	nextPage := make([]byte, 8)
 	_, err = pageAllocator.Database.ReadAt(nextPage, int64(freePage)*int64(pageAllocator.PageSize))
-	_, err = pageAllocator.Database.WriteAt(nextPage, 0)
+	if err != nil {
+		return 0, err
+	}
 
+	err = pageAllocator.WriteFreeList(binary.LittleEndian.Uint64(nextPage))
 	return freePage, err
 }
 
@@ -66,14 +98,32 @@ func (pageAllocator *PageAllocator) WritePage(id uint, data []byte) error {
 	return err
 }
 
-func (pageAllocator *PageAllocator) FreePage(id uint) {
-	pageAllocator.WriteFreeList(id)
+func (pageAllocator *PageAllocator) FreePage(id uint64) error {
+	oldId, err := pageAllocator.ReadFreeList()
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WriteFreeList(id)
+	if err != nil {
+		return err
+	}
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, oldId)
+	_, err = pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize)
+	return err
 }
 
 func (pageAllocator *PageAllocator) ReadFreeList() (uint64, error) {
-	// 8 bytes of memory
-	idBytes := make([]byte, 8)
-	_, err := pageAllocator.Database.ReadAt(idBytes, 0)
+	return pageAllocator.ReadMetadata(FreeListHeadOffset)
+}
+
+func (pageAllocator *PageAllocator) WriteFreeList(id uint64) error {
+	return pageAllocator.WriteMetadata(FreeListHeadOffset, id)
+}
+
+func (pageAllocator *PageAllocator) ReadMetadata(offset int64) (uint64, error) {
+	data := make([]byte, 8)
+	_, err := pageAllocator.Database.ReadAt(data, offset)
 
 	if err != nil {
 		if err == io.EOF {
@@ -82,23 +132,13 @@ func (pageAllocator *PageAllocator) ReadFreeList() (uint64, error) {
 		return 0, err
 	}
 
-	return binary.LittleEndian.Uint64(idBytes), nil
+	return binary.LittleEndian.Uint64(data), nil
 }
 
-func (pageAllocator *PageAllocator) WriteFreeList(id uint) error {
-	idOld, err := pageAllocator.ReadFreeList()
-	if err != nil {
-		return err
-	}
-	idBytes := make([]byte, 8)
+func (pageAllocator *PageAllocator) WriteMetadata(offset int64, data uint64) error {
+	bytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bytes, data)
 
-	binary.LittleEndian.PutUint64(idBytes, uint64(idOld))
-	_, err = pageAllocator.Database.WriteAt(idBytes, int64(id)*int64(pageAllocator.PageSize))
-	if err != nil {
-		return err
-	}
-
-	binary.LittleEndian.PutUint64(idBytes, uint64(id))
-	_, err = pageAllocator.Database.WriteAt(idBytes, 0)
+	_, err := pageAllocator.Database.WriteAt(bytes, offset)
 	return err
 }
