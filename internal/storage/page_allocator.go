@@ -19,7 +19,7 @@ const (
 	PageSizeOffset     = 16
 )
 
-func (pageAllocator *PageAllocator) Initialize(file string, pageSize uint64) error {
+func (pageAllocator *PageAllocator) Initialize(file string) error {
 	var err error
 	// 4 kb page sizes
 	pageAllocator.PageSize = 4096
@@ -87,13 +87,13 @@ func (pageAllocator *PageAllocator) AllocatePage() (uint64, error) {
 	return freePage, err
 }
 
-func (pageAllocator *PageAllocator) ReadPage(id uint) ([]byte, error) {
+func (pageAllocator *PageAllocator) ReadPage(id uint64) ([]byte, error) {
 	page := make([]byte, pageAllocator.PageSize)
 	_, err := pageAllocator.Database.ReadAt(page, int64(id)*pageAllocator.PageSize)
 	return page, err
 }
 
-func (pageAllocator *PageAllocator) WritePage(id uint, data []byte) error {
+func (pageAllocator *PageAllocator) WritePage(id uint64, data []byte) error {
 	_, err := pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize)
 	return err
 }
