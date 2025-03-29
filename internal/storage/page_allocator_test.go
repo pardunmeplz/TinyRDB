@@ -6,34 +6,36 @@ import (
 	"testing"
 )
 
-func TestPageAllocator(t *testing.T) {
-
-	// Remove any existing DB file (for a fresh start)
+func newAllocator(t *testing.T) *PageAllocator {
 	os.Remove("test.db")
 
-	// Create and initialize the PageAllocator
 	pageAllocator := &PageAllocator{}
 	err := pageAllocator.Initialize("test.db")
 	if err != nil {
 		t.Fatal("Failed to initialize page allocator:", err)
 	}
+	return pageAllocator
+}
+
+func TestReadWrite(t *testing.T) {
+	const PageCount = 5
+	pageAllocator := newAllocator(t)
 
 	// Allocate a few pages
 	pageIDs := []uint64{}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < PageCount; i++ {
 		pageID, err := pageAllocator.AllocatePage()
 		if err != nil {
 			t.Fatal("Page allocation failed:", err)
 		}
 		pageIDs = append(pageIDs, pageID)
-		t.Log("Allocated Page ID:", pageID)
 	}
 
 	// Write random data to pages
 	pageData := make(map[uint64][]byte)
 	for _, id := range pageIDs {
 		data := make([]byte, pageAllocator.PageSize)
-		rand.Read(data) // Fill with random data
+		rand.Read(data)
 		err := pageAllocator.WritePage(id, data)
 		if err != nil {
 			t.Fatal("Write failed for page", id, ":", err)
@@ -49,20 +51,24 @@ func TestPageAllocator(t *testing.T) {
 		}
 
 		if string(readData) != string(pageData[id]) {
-			t.Fatal("Data mismatch for page", id)
-		} else {
-			t.Log("Page", id, "data verified!")
+			t.Error("Data mismatch for page", id)
 		}
 	}
+}
 
-	t.Log("All allocated pages verified successfully.")
+func TestReuseOnAllocate(t *testing.T) {
+	pageAllocator := newAllocator(t)
+
+	// get a page
+	id, err := pageAllocator.AllocatePage()
+	if err != nil {
+		t.Fatal("Failed to allocate page:", err)
+	}
 
 	// Free a page
-	toFree := pageIDs[2]
-	t.Log("Freeing Page:", toFree)
-	err = pageAllocator.WriteFreeList(toFree)
+	err = pageAllocator.WriteFreeList(id)
 	if err != nil {
-		t.Fatal("Failed to free page", toFree, ":", err)
+		t.Fatal("Failed to free page", id, ":", err)
 	}
 
 	// Allocate another page, should reuse the freed one
@@ -70,12 +76,49 @@ func TestPageAllocator(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to allocate after freeing:", err)
 	}
-	t.Log("Newly allocated page ID:", newPage)
 
-	// If our free list logic is correct, newPage should be equal to toFree
-	if newPage == toFree {
-		t.Log("Page reuse confirmed!")
-	} else {
-		t.Fatal("Unexpected allocation order! Expected", toFree, "but got", newPage)
+	if newPage != id {
+		t.Fatal("Unexpected allocation order! Expected", id, "but got", newPage)
 	}
+
+}
+
+func TestMetadata(t *testing.T) {
+	pageAllocator := newAllocator(t)
+
+	id, err := pageAllocator.AllocatePage()
+	if err != nil {
+		t.Fatal("Failed to allocate page:", err)
+	}
+
+	offset, err := pageAllocator.ReadMetadata(TotalPageOffset)
+	if err != nil {
+		t.Fatal("Failed to read offset", err)
+	}
+	// one for metadata page and one for the new allocated page
+	if offset != 2 {
+		t.Error("Failed offset count, Expected 1 but got ", offset)
+	}
+
+	err = pageAllocator.FreePage(id)
+	if err != nil {
+		t.Fatal("Failed to free page ", id, ":", err)
+	}
+
+	newId, err := pageAllocator.ReadMetadata(FreeListHeadOffset)
+	if err != nil {
+		t.Fatal("Failed to read offset", err)
+	}
+	if newId != id {
+		t.Error("Failed free head metadata check, Expected ", id, "but got", newId)
+	}
+
+	pageSize, err := pageAllocator.ReadMetadata(PageSizeOffset)
+	if err != nil {
+		t.Fatal("Failed to read offset", err)
+	}
+	if pageSize != uint64(pageAllocator.PageSize) {
+		t.Error("Failed page size metadata check, Expected ", pageAllocator.PageSize, "but got", pageSize)
+	}
+
 }
