@@ -24,7 +24,7 @@ func TestReadWrite(t *testing.T) {
 	// Allocate a few pages
 	pageIDs := []uint64{}
 	for i := 0; i < PageCount; i++ {
-		pageID, err := pageAllocator.AllocatePage()
+		pageID, err := pageAllocator.AllocatePage(PagetypeUserdata)
 		if err != nil {
 			t.Fatal("Page allocation failed:", err)
 		}
@@ -32,11 +32,12 @@ func TestReadWrite(t *testing.T) {
 	}
 
 	// Write random data to pages
-	pageData := make(map[uint64][]byte)
+	pageData := make(map[uint64]PageData)
 	for _, id := range pageIDs {
-		data := make([]byte, pageAllocator.PageSize)
-		rand.Read(data)
-		err := pageAllocator.WritePage(id, data)
+		data := MakePageData()
+		rand.Read(data[:])
+
+		err := pageAllocator.WritePageData(id, data)
 		if err != nil {
 			t.Fatal("Write failed for page", id, ":", err)
 		}
@@ -45,12 +46,12 @@ func TestReadWrite(t *testing.T) {
 
 	// Read back and verify the data
 	for _, id := range pageIDs {
-		readData, err := pageAllocator.ReadPage(id)
+		readData, err := pageAllocator.ReadPageData(id)
 		if err != nil {
 			t.Fatal("Read failed for page", id, ":", err)
 		}
 
-		if string(readData) != string(pageData[id]) {
+		if string(readData[:]) != string(pageData[id][:]) {
 			t.Error("Data mismatch for page", id)
 		}
 	}
@@ -60,7 +61,7 @@ func TestReuseOnAllocate(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
 	// get a page
-	id, err := pageAllocator.AllocatePage()
+	id, err := pageAllocator.AllocatePage(PagetypeUserdata)
 	if err != nil {
 		t.Fatal("Failed to allocate page:", err)
 	}
@@ -72,7 +73,7 @@ func TestReuseOnAllocate(t *testing.T) {
 	}
 
 	// Allocate another page, should reuse the freed one
-	newPage, err := pageAllocator.AllocatePage()
+	newPage, err := pageAllocator.AllocatePage(PagetypeUserdata)
 	if err != nil {
 		t.Fatal("Failed to allocate after freeing:", err)
 	}
@@ -86,12 +87,12 @@ func TestReuseOnAllocate(t *testing.T) {
 func TestMetadata(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
-	id, err := pageAllocator.AllocatePage()
+	id, err := pageAllocator.AllocatePage(PagetypeUserdata)
 	if err != nil {
 		t.Fatal("Failed to allocate page:", err)
 	}
 
-	offset, err := pageAllocator.ReadMetadata(TotalPageOffset)
+	offset, err := pageAllocator.ReadMetadata(MetadataTotalPageOffset)
 	if err != nil {
 		t.Fatal("Failed to read offset", err)
 	}
@@ -105,7 +106,7 @@ func TestMetadata(t *testing.T) {
 		t.Fatal("Failed to free page ", id, ":", err)
 	}
 
-	newId, err := pageAllocator.ReadMetadata(FreeListHeadOffset)
+	newId, err := pageAllocator.ReadMetadata(MetadataFreeListHeadOffset)
 	if err != nil {
 		t.Fatal("Failed to read offset", err)
 	}
@@ -113,7 +114,7 @@ func TestMetadata(t *testing.T) {
 		t.Error("Failed free head metadata check, Expected ", id, "but got", newId)
 	}
 
-	pageSize, err := pageAllocator.ReadMetadata(PageSizeOffset)
+	pageSize, err := pageAllocator.ReadMetadata(MetadataPageSizeOffset)
 	if err != nil {
 		t.Fatal("Failed to read offset", err)
 	}
