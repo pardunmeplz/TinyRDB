@@ -187,3 +187,25 @@ func (pageAllocator *PageAllocator) ReadPageData(id uint64) (PageData, error) {
 	}
 	return data, err
 }
+
+func (pageAllocator *PageAllocator) VerifyDatabase() (bool, error) {
+	count, err := pageAllocator.ReadMetadata(MetadataTotalPageOffset)
+	if err != nil {
+		return false, err
+	}
+	for x := range count {
+		header, err := pageAllocator.ReadPageHeader(x)
+		if err != nil {
+			return false, err
+		}
+		data, err := pageAllocator.ReadPageData(x)
+		if err != nil {
+			return false, err
+		}
+		if getChecksum(data) != header.Checksum {
+			return false, nil
+		}
+
+	}
+	return true, nil
+}
