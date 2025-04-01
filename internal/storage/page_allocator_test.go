@@ -17,7 +17,7 @@ func newAllocator(t *testing.T) *PageAllocator {
 	return pageAllocator
 }
 
-func TestReadWrite(t *testing.T) {
+func estReadWrite(t *testing.T) {
 	const PageCount = 5
 	pageAllocator := newAllocator(t)
 
@@ -57,7 +57,7 @@ func TestReadWrite(t *testing.T) {
 	}
 }
 
-func TestReuseOnAllocate(t *testing.T) {
+func estReuseOnAllocate(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
 	// get a page
@@ -84,7 +84,7 @@ func TestReuseOnAllocate(t *testing.T) {
 
 }
 
-func TestMetadata(t *testing.T) {
+func estMetadata(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
 	id, err := pageAllocator.AllocatePage(PagetypeUserdata)

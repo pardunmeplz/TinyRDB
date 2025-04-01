@@ -107,6 +107,18 @@ func (pageAllocator *PageAllocator) FreePage(id uint64) error {
 	data = append(data, 0, PagetypeFreepage)
 	binary.LittleEndian.AppendUint64(data, oldId)
 	_, err = pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize)
+	if err != nil {
+		return err
+	}
+	pageData, err := pageAllocator.ReadPageData(id)
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WritePageHeader(id, PageHeaderChecksumOffset, getChecksum(pageData))
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WritePageHeader(id, PageHeaderTypeOffset, PagetypeFreepage)
 	return err
 }
 
