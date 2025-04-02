@@ -17,7 +17,7 @@ func newAllocator(t *testing.T) *PageAllocator {
 	return pageAllocator
 }
 
-func estReadWrite(t *testing.T) {
+func TestReadWrite(t *testing.T) {
 	const PageCount = 5
 	pageAllocator := newAllocator(t)
 
@@ -57,7 +57,7 @@ func estReadWrite(t *testing.T) {
 	}
 }
 
-func estReuseOnAllocate(t *testing.T) {
+func TestReuseOnAllocate(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
 	// get a page
@@ -67,7 +67,7 @@ func estReuseOnAllocate(t *testing.T) {
 	}
 
 	// Free a page
-	err = pageAllocator.WriteFreeList(id)
+	err = pageAllocator.FreePage(id)
 	if err != nil {
 		t.Fatal("Failed to free page", id, ":", err)
 	}
@@ -84,7 +84,7 @@ func estReuseOnAllocate(t *testing.T) {
 
 }
 
-func estMetadata(t *testing.T) {
+func TestMetadata(t *testing.T) {
 	pageAllocator := newAllocator(t)
 
 	id, err := pageAllocator.AllocatePage(PagetypeUserdata)

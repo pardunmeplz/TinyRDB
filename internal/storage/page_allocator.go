@@ -33,8 +33,17 @@ func (pageAllocator *PageAllocator) Initialize(file string) error {
 		return err
 	}
 
-	// add new page
-	_, err = pageAllocator.AllocatePage(PagetypeMetadata)
+	// add new page headers
+	metaData := make([]byte, pageAllocator.PageSize)
+	metaData[PageHeaderVersionOffset] = 0
+	metaData[PageHeaderTypeOffset] = PagetypeMetadata
+	binary.LittleEndian.PutUint32(data[PageHeaderChecksumOffset:], pageAllocator.emptyChecksum)
+
+	// allocate page
+	_, err = pageAllocator.Database.Write(metaData)
+	if err != nil {
+		return err
+	}
 
 	err = pageAllocator.WriteMetadata(MetadataFreeListHeadOffset, 0)
 	if err != nil {
@@ -63,7 +72,7 @@ func (pageAllocator *PageAllocator) AllocatePage(pageType byte) (uint64, error) 
 		// set headers
 		data[PageHeaderVersionOffset] = 0
 		data[PageHeaderTypeOffset] = pageType
-		binary.BigEndian.PutUint32(data[PageHeaderChecksumOffset:], pageAllocator.emptyChecksum)
+		binary.LittleEndian.PutUint32(data[PageHeaderChecksumOffset:], pageAllocator.emptyChecksum)
 
 		// get new id
 		id, err := pageAllocator.ReadMetadata(MetadataTotalPageOffset)
@@ -103,14 +112,13 @@ func (pageAllocator *PageAllocator) FreePage(id uint64) error {
 	if err != nil {
 		return err
 	}
-	data := make([]byte, 0, PageHeaderSize+8)
-	data = append(data, 0, PagetypeFreepage)
-	binary.LittleEndian.AppendUint64(data, oldId)
-	_, err = pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize)
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, oldId)
+	_, err = pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize+PageHeaderSize)
 	if err != nil {
 		return err
 	}
-	pageData, err := pageAllocator.ReadPageData(id)
+	pageData, err := pageAllocator.readPageDataWithoutVerify(id)
 	if err != nil {
 		return err
 	}
@@ -148,7 +156,16 @@ func (pageAllocator *PageAllocator) WriteMetadata(offset int64, data uint64) err
 	bytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bytes, data)
 
-	_, err := pageAllocator.Database.WriteAt(bytes, offset+PageHeaderSize)
+	_, err := pageAllocator.Database.WriteAt(bytes, offset)
+	if err != nil {
+		return err
+	}
+
+	pageData, err := pageAllocator.readPageDataWithoutVerify(0)
+	if err != nil {
+		return err
+	}
+	err = pageAllocator.WritePageHeader(0, PageHeaderChecksumOffset, getChecksum(pageData))
 	return err
 }
 
@@ -158,7 +175,7 @@ func (pageAllocator *PageAllocator) ReadPageHeader(id uint64) (PageHeader, error
 	response := PageHeader{}
 	response.PageVersion = data[PageHeaderVersionOffset]
 	response.PageType = data[PageHeaderTypeOffset]
-	response.Checksum = binary.BigEndian.Uint32(data[PageHeaderChecksumOffset:])
+	response.Checksum = binary.LittleEndian.Uint32(data[PageHeaderChecksumOffset:])
 	return response, err
 }
 
@@ -169,9 +186,10 @@ func (pageAllocator *PageAllocator) WritePageHeader(id uint64, offset int64, hea
 		_, err := pageAllocator.Database.WriteAt([]byte{data}, int64(id)*pageAllocator.PageSize+offset)
 		return err
 	case uint32:
-		data := make([]byte, 0, 4)
-		binary.BigEndian.AppendUint32(data, pageAllocator.emptyChecksum)
-		_, err := pageAllocator.Database.WriteAt(data, int64(id)*pageAllocator.PageSize+offset)
+		data, _ := header.(uint32)
+		dataBytes := make([]byte, 0, 4)
+		dataBytes = binary.LittleEndian.AppendUint32(dataBytes, data)
+		_, err := pageAllocator.Database.WriteAt(dataBytes, int64(id)*pageAllocator.PageSize+offset)
 		return err
 	default:
 		return nil
@@ -187,6 +205,12 @@ func (pageAllocator *PageAllocator) WritePageData(id uint64, data PageData) erro
 	return err
 }
 
+func (pageAllocator *PageAllocator) readPageDataWithoutVerify(id uint64) (PageData, error) {
+	data := MakePageData()
+	_, err := pageAllocator.Database.ReadAt(data[:], int64(id)*pageAllocator.PageSize+PageHeaderSize)
+	return data, err
+}
+
 func (pageAllocator *PageAllocator) ReadPageData(id uint64) (PageData, error) {
 	data := MakePageData()
 	_, err := pageAllocator.Database.ReadAt(data[:], int64(id)*pageAllocator.PageSize+PageHeaderSize)
@@ -194,8 +218,9 @@ func (pageAllocator *PageAllocator) ReadPageData(id uint64) (PageData, error) {
 		return data, err
 	}
 	header, err := pageAllocator.ReadPageHeader(id)
-	if header.Checksum != getChecksum(data) {
-		return data, fmt.Errorf("Checksum Mismatch")
+	checksum := getChecksum(data)
+	if header.Checksum != checksum {
+		return data, fmt.Errorf("Checksum Mismatch %d against %d", header.Checksum, checksum)
 	}
 	return data, err
 }
@@ -210,7 +235,7 @@ func (pageAllocator *PageAllocator) VerifyDatabase() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		data, err := pageAllocator.ReadPageData(x)
+		data, err := pageAllocator.readPageDataWithoutVerify(x)
 		if err != nil {
 			return false, err
 		}
