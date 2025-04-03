@@ -246,3 +246,8 @@ func (pageAllocator *PageAllocator) VerifyDatabase() (bool, error) {
 	}
 	return true, nil
 }
+
+func (PageAllocator *PageAllocator) CloseFile() error {
+	err := PageAllocator.Database.Close()
+	return err
+}

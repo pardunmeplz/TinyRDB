@@ -19,7 +19,6 @@ func (WriteAheadLog *WriteAheadLog) initialize(fileName string) error {
 	}
 
 	return err
-
 }
 
 func (WriteAheadLog *WriteAheadLog) refreshCache() {
@@ -54,5 +53,8 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) {
 
 	WriteAheadLog.log.Write(data)
 	WriteAheadLog.nextTransactionId++
+}
 
+func (WriteAheadLog *WriteAheadLog) closeFile() {
+	WriteAheadLog.log.Close()
 }

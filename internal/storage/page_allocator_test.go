@@ -20,6 +20,7 @@ func newAllocator(t *testing.T) *PageAllocator {
 func TestReadWrite(t *testing.T) {
 	const PageCount = 5
 	pageAllocator := newAllocator(t)
+	defer pageAllocator.CloseFile()
 
 	// Allocate a few pages
 	pageIDs := []uint64{}
@@ -59,6 +60,7 @@ func TestReadWrite(t *testing.T) {
 
 func TestReuseOnAllocate(t *testing.T) {
 	pageAllocator := newAllocator(t)
+	defer pageAllocator.CloseFile()
 
 	// get a page
 	id, err := pageAllocator.AllocatePage(PagetypeUserdata)
@@ -86,6 +88,7 @@ func TestReuseOnAllocate(t *testing.T) {
 
 func TestMetadata(t *testing.T) {
 	pageAllocator := newAllocator(t)
+	defer pageAllocator.CloseFile()
 
 	id, err := pageAllocator.AllocatePage(PagetypeUserdata)
 	if err != nil {
