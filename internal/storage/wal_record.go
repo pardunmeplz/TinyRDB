@@ -16,7 +16,7 @@ func (Transaction *Transaction) MakeTransaction() *Transaction {
 	return Transaction
 }
 
-func (transaction *Transaction) checkSum() bool {
+func (transaction *Transaction) checkSum() (uint32, uint32, bool) {
 	data := binary.LittleEndian.AppendUint64([]byte{}, transaction.Header.transactionId)
 	data = binary.LittleEndian.AppendUint32(data, transaction.Header.pageCount)
 
@@ -30,7 +30,8 @@ func (transaction *Transaction) checkSum() bool {
 
 	data = binary.LittleEndian.AppendUint64(data, transaction.Header.transactionId)
 	data = append(data, transaction.End.Status)
-	return transaction.End.Checksum == getChecksumFromBytes(data)
+	checksum := getChecksumFromBytes(data)
+	return checksum, transaction.End.Checksum, transaction.End.Checksum == checksum
 }
 
 type TransactionHeader struct {

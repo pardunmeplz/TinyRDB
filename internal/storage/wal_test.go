@@ -40,16 +40,19 @@ func TestAppendRead(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to write transaction: ", err)
 	}
+	wal.Log.Sync()
 
 	walReader := WalReader{}
 	walReader.initialize(wal)
 
 	readTransaction, err := walReader.getTransaction()
 	if err != nil {
-		t.Fatal("Failed to read transaction :", err)
+		t.Fatal("Failed to read transaction :", err, transaction, readTransaction)
 	}
-	if !readTransaction.checkSum() {
-		t.Fatal("Failed checksum for transaction ", readTransaction.Header.transactionId)
+	checksum, checksumnew, ok := readTransaction.checkSum()
+
+	if !ok {
+		t.Fatal("Failed checksum for transaction ", checksum, checksumnew)
 	}
 
 }

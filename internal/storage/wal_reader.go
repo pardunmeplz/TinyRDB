@@ -3,7 +3,6 @@ package storage
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"io"
 )
 
@@ -23,8 +22,9 @@ func (WriteAheadLog *WriteAheadLog) Startup() error {
 }
 
 func (WalReader *WalReader) initialize(WriteAheadLog *WriteAheadLog) {
-	WalReader.reader = bufio.NewReader(WriteAheadLog.log)
+	WalReader.reader = bufio.NewReader(WriteAheadLog.Log)
 	WalReader.WriteAheadLog = WriteAheadLog
+	WriteAheadLog.Log.Seek(0, io.SeekStart)
 }
 
 func (WalReader *WalReader) getTransaction() (Transaction, error) {
@@ -33,9 +33,7 @@ func (WalReader *WalReader) getTransaction() (Transaction, error) {
 
 	err := binary.Read(WalReader.reader, binary.LittleEndian, &transaction.Header.transactionId)
 	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return transaction, err
-		}
+		return transaction, err
 	}
 	err = binary.Read(WalReader.reader, binary.LittleEndian, &transaction.Header.pageCount)
 	if err != nil {
