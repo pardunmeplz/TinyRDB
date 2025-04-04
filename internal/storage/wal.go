@@ -11,7 +11,7 @@ type WriteAheadLog struct {
 	nextTransactionId uint64
 }
 
-func (WriteAheadLog *WriteAheadLog) initialize(fileName string) error {
+func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	var err error
 	WriteAheadLog.log, err = os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
@@ -33,26 +33,31 @@ func (writeAheadLog *WriteAheadLog) addCache(page uint64, offset uint32, size ui
 	writeAheadLog.cache[page] = append(writeAheadLog.cache[page], WalIndexRecord{offset, size, transaction, data})
 }
 
-func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) {
+func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) error {
 	data := binary.LittleEndian.AppendUint64([]byte{}, WriteAheadLog.nextTransactionId)
-	data = binary.LittleEndian.AppendUint32(data, transaction.header.pageCount)
+	data = binary.LittleEndian.AppendUint32(data, transaction.Header.pageCount)
 
-	for _, page := range transaction.body {
-		data = binary.LittleEndian.AppendUint64(data, page.pageId)
-		data = binary.LittleEndian.AppendUint32(data, page.offset)
-		data = binary.LittleEndian.AppendUint32(data, page.length)
-		data = append(data, page.oldData...)
-		data = append(data, page.newData...)
+	for _, page := range transaction.Body {
+		data = binary.LittleEndian.AppendUint64(data, page.PageId)
+		data = binary.LittleEndian.AppendUint32(data, page.Offset)
+		data = binary.LittleEndian.AppendUint32(data, page.Length)
+		data = append(data, page.OldData...)
+		data = append(data, page.NewData...)
 
-		WriteAheadLog.addCache(page.pageId, page.offset, page.length, WriteAheadLog.nextTransactionId, page.newData)
+		WriteAheadLog.addCache(page.PageId, page.Offset, page.Length, WriteAheadLog.nextTransactionId, page.NewData)
 	}
 
 	data = binary.LittleEndian.AppendUint64(data, WriteAheadLog.nextTransactionId)
-	data = append(data, transaction.end.status)
+	data = append(data, transaction.End.Status)
 	data = binary.LittleEndian.AppendUint32(data, getChecksumFromBytes(data))
 
-	WriteAheadLog.log.Write(data)
+	_, err := WriteAheadLog.log.Write(data)
+	if err != nil {
+		return err
+	}
+
 	WriteAheadLog.nextTransactionId++
+	return nil
 }
 
 func (WriteAheadLog *WriteAheadLog) closeFile() {

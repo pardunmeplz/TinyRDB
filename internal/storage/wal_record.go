@@ -1,11 +1,36 @@
 package storage
 
-import "hash/crc32"
+import (
+	"encoding/binary"
+	"hash/crc32"
+)
 
 type Transaction struct {
-	header TransactionHeader
-	body   []PageEntry
-	end    TransactionEnd
+	Header TransactionHeader
+	Body   []PageEntry
+	End    TransactionEnd
+}
+
+func (Transaction *Transaction) MakeTransaction() *Transaction {
+	Transaction.Body = make([]PageEntry, 0)
+	return Transaction
+}
+
+func (transaction *Transaction) checkSum() bool {
+	data := binary.LittleEndian.AppendUint64([]byte{}, transaction.Header.transactionId)
+	data = binary.LittleEndian.AppendUint32(data, transaction.Header.pageCount)
+
+	for _, page := range transaction.Body {
+		data = binary.LittleEndian.AppendUint64(data, page.PageId)
+		data = binary.LittleEndian.AppendUint32(data, page.Offset)
+		data = binary.LittleEndian.AppendUint32(data, page.Length)
+		data = append(data, page.OldData...)
+		data = append(data, page.NewData...)
+	}
+
+	data = binary.LittleEndian.AppendUint64(data, transaction.Header.transactionId)
+	data = append(data, transaction.End.Status)
+	return transaction.End.Checksum == getChecksumFromBytes(data)
 }
 
 type TransactionHeader struct {
@@ -14,17 +39,17 @@ type TransactionHeader struct {
 }
 
 type PageEntry struct {
-	pageId  uint64
-	offset  uint32
-	length  uint32
-	oldData []byte
-	newData []byte
+	PageId  uint64
+	Offset  uint32
+	Length  uint32
+	OldData []byte
+	NewData []byte
 }
 
 type TransactionEnd struct {
-	transactionId uint64
-	status        byte
-	cheksum       uint32
+	TransactionId uint64
+	Status        byte
+	Checksum      uint32
 }
 
 func getChecksumFromBytes(data []byte) uint32 {
