@@ -2,13 +2,15 @@ package storage
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
 type WriteAheadLog struct {
 	Log               *os.File
-	Cache             map[uint64][]WalIndexRecord
+	Cache             map[uint64][]Transaction
 	nextTransactionId uint64
 }
 
@@ -20,19 +22,32 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	}
 	WriteAheadLog.refreshCache()
 
-	return err
+	walReader := WalReader{}
+	walReader.initialize(WriteAheadLog)
+	for {
+		transaction, err := walReader.getTransaction()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		WriteAheadLog.addCache(transaction)
+	}
 }
 
 func (WriteAheadLog *WriteAheadLog) refreshCache() {
-	WriteAheadLog.Cache = make(map[uint64][]WalIndexRecord)
+	WriteAheadLog.Cache = make(map[uint64][]Transaction)
 }
 
-func (writeAheadLog *WriteAheadLog) addCache(page uint64, offset uint32, size uint32, transaction uint64, data []byte) {
-	if writeAheadLog.Cache[page] == nil {
-		writeAheadLog.Cache[page] = make([]WalIndexRecord, 0)
-	}
+func (writeAheadLog *WriteAheadLog) addCache(transaction Transaction) {
+	for _, body := range transaction.Body {
+		if writeAheadLog.Cache[body.PageId] == nil {
+			writeAheadLog.Cache[body.PageId] = make([]Transaction, 0)
+		}
 
-	writeAheadLog.Cache[page] = append(writeAheadLog.Cache[page], WalIndexRecord{offset, size, transaction, data})
+		writeAheadLog.Cache[body.PageId] = append(writeAheadLog.Cache[body.PageId], transaction)
+	}
 }
 
 func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) error {
@@ -46,7 +61,7 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) e
 		data = append(data, page.OldData...)
 		data = append(data, page.NewData...)
 
-		WriteAheadLog.addCache(page.PageId, page.Offset, page.Length, WriteAheadLog.nextTransactionId, page.NewData)
+		WriteAheadLog.addCache(transaction)
 	}
 
 	data = binary.LittleEndian.AppendUint64(data, WriteAheadLog.nextTransactionId)

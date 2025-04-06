@@ -61,10 +61,3 @@ const (
 	COMMIT   = 0
 	ROLLBACK = 1
 )
-
-type WalIndexRecord struct {
-	offset      uint32
-	size        uint32
-	transaction uint64
-	newData     []byte
-}
