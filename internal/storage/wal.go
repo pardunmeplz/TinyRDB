@@ -24,13 +24,23 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 
 	walReader := WalReader{}
 	walReader.initialize(WriteAheadLog)
+	offset := walReader.bytesRead
 	for {
+		offset = walReader.bytesRead
 		transaction, err := walReader.getTransaction()
 		if err != nil {
+			error := WriteAheadLog.Log.Truncate(int64(offset))
+			if error != nil {
+				return error
+			}
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
+		}
+		_, _, ok := transaction.checkSum()
+		if !ok {
+			continue
 		}
 		WriteAheadLog.addCache(transaction)
 	}
@@ -65,7 +75,6 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) e
 	}
 
 	data = binary.LittleEndian.AppendUint64(data, WriteAheadLog.nextTransactionId)
-	data = append(data, transaction.End.Status)
 	data = binary.LittleEndian.AppendUint32(data, getChecksumFromBytes(data))
 	fmt.Println(data)
 

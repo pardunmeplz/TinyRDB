@@ -29,7 +29,6 @@ func (transaction *Transaction) checkSum() (uint32, uint32, bool) {
 	}
 
 	data = binary.LittleEndian.AppendUint64(data, transaction.Header.transactionId)
-	data = append(data, transaction.End.Status)
 	checksum := getChecksumFromBytes(data)
 	return checksum, transaction.End.Checksum, transaction.End.Checksum == checksum
 }
@@ -49,15 +48,9 @@ type PageEntry struct {
 
 type TransactionEnd struct {
 	TransactionId uint64
-	Status        byte
 	Checksum      uint32
 }
 
 func getChecksumFromBytes(data []byte) uint32 {
 	return crc32.ChecksumIEEE(data)
 }
-
-const (
-	COMMIT   = 0
-	ROLLBACK = 1
-)

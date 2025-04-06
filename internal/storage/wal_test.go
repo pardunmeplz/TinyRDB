@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/binary"
 	"os"
 	"reflect"
 	"testing"
@@ -35,7 +36,6 @@ func TestAppendRead(t *testing.T) {
 	}
 	transaction.Body = append(transaction.Body, page)
 	transaction.End.TransactionId = 1
-	transaction.End.Status = 1   // committed
 	transaction.End.Checksum = 0 // will be overwritten in append
 
 	err := wal.AppendTransaction(transaction)
@@ -88,7 +88,6 @@ func TestReadingAtStartup(t *testing.T) {
 	}
 	transaction.Body = append(transaction.Body, page)
 	transaction.End.TransactionId = 1
-	transaction.End.Status = 1   // committed
 	transaction.End.Checksum = 0 // will be overwritten in append
 
 	err := wal.AppendTransaction(transaction)
@@ -114,6 +113,74 @@ func TestReadingAtStartup(t *testing.T) {
 		!reflect.DeepEqual(cacheTransaction.Body[0].OldData, transaction.Body[0].OldData) {
 
 		t.Fatal("Value mismatch, cache transaction is not equal to written transaction ")
+	}
+
+}
+
+func TestTruncate(t *testing.T) {
+	os.Remove("wal.log")
+	wal := newWal(t)
+	defer wal.closeFile()
+
+	// --- Create a dummy transaction ---
+	transaction := Transaction{}
+	transaction.MakeTransaction()
+
+	transaction.Header.pageCount = 1
+	page := PageEntry{
+		PageId:  42,
+		Offset:  10,
+		Length:  4,
+		OldData: []byte{1, 2, 3, 4},
+		NewData: []byte{5, 6, 7, 8},
+	}
+	transaction.Body = append(transaction.Body, page)
+	transaction.End.TransactionId = 1
+	transaction.End.Checksum = 0 // will be overwritten in append
+
+	err := wal.AppendTransaction(transaction)
+	if err != nil {
+		t.Fatal("Failed to write transaction: ", err)
+	}
+
+	// duplicate entry with checksum mismatch
+	err = wal.AppendTransaction(transaction)
+	if err != nil {
+		t.Fatal("Failed to write transaction: ", err)
+	}
+	// override the checksum
+	wal.Log.Seek(-4, 1)
+	wal.Log.Write([]byte{0, 1, 1, 0})
+
+	// put in an incomplete transaction
+	data := []byte{}
+	data = binary.LittleEndian.AppendUint64(data, transaction.Header.transactionId) // transactionId
+	data = binary.LittleEndian.AppendUint32(data, 1)                                // page count
+	data = binary.LittleEndian.AppendUint64(data, 43)                               // page id
+	wal.Log.Write(data)
+
+	wal.Log.Sync()
+	preInfo, err := wal.Log.Stat()
+	if err != nil {
+		t.Fatal("Failed to get pre-file size: ", err)
+	}
+	preSize := preInfo.Size()
+	wal.closeFile()
+
+	walNew := newWal(t)
+	defer walNew.closeFile()
+	postInfo, err := walNew.Log.Stat()
+	if err != nil {
+		t.Fatal("Failed to get post-file size: ", err)
+	}
+	postSize := postInfo.Size()
+	difference := int64(len(data))
+
+	if preSize-postSize != difference {
+		t.Fatal("Expected truncation size was ", len(data), " instead got ", preInfo.Size()-postInfo.Size())
+	}
+	if len(walNew.Cache) != 1 {
+		t.Fatal("Expected 1 transaction in cache after recovery, got", len(walNew.Cache))
 	}
 
 }
