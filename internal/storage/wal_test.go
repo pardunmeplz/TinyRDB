@@ -38,7 +38,7 @@ func TestAppendRead(t *testing.T) {
 	transaction.End.TransactionId = 1
 	transaction.End.Checksum = 0 // will be overwritten in append
 
-	err := wal.AppendTransaction(transaction)
+	err, _ := wal.AppendTransaction(transaction)
 	if err != nil {
 		t.Fatal("Failed to write transaction: ", err)
 	}
@@ -90,7 +90,7 @@ func TestReadingAtStartup(t *testing.T) {
 	transaction.End.TransactionId = 1
 	transaction.End.Checksum = 0 // will be overwritten in append
 
-	err := wal.AppendTransaction(transaction)
+	err, _ := wal.AppendTransaction(transaction)
 	if err != nil {
 		t.Fatal("Failed to write transaction: ", err)
 	}
@@ -138,13 +138,13 @@ func TestTruncate(t *testing.T) {
 	transaction.End.TransactionId = 1
 	transaction.End.Checksum = 0 // will be overwritten in append
 
-	err := wal.AppendTransaction(transaction)
+	err, _ := wal.AppendTransaction(transaction)
 	if err != nil {
 		t.Fatal("Failed to write transaction: ", err)
 	}
 
 	// duplicate entry with checksum mismatch
-	err = wal.AppendTransaction(transaction)
+	err, _ = wal.AppendTransaction(transaction)
 	if err != nil {
 		t.Fatal("Failed to write transaction: ", err)
 	}

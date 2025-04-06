@@ -75,7 +75,7 @@ func (writeAheadLog *WriteAheadLog) addCache(transaction Transaction) {
 	}
 }
 
-func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) error {
+func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (error, uint64) {
 	data := binary.LittleEndian.AppendUint64([]byte{}, WriteAheadLog.nextTransactionId)
 	data = binary.LittleEndian.AppendUint32(data, transaction.Header.pageCount)
 
@@ -95,11 +95,11 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) e
 
 	_, err := WriteAheadLog.Log.Write(data)
 	if err != nil {
-		return err
+		return err, WriteAheadLog.nextTransactionId
 	}
 
 	WriteAheadLog.nextTransactionId++
-	return nil
+	return nil, WriteAheadLog.nextTransactionId - 1
 }
 
 func (WriteAheadLog *WriteAheadLog) closeFile() error {
