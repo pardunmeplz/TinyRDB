@@ -10,7 +10,8 @@ import (
 
 type WriteAheadLog struct {
 	Log               *os.File
-	Cache             map[uint64][]Transaction
+	FileName          string
+	Cache             map[uint64][]*Transaction
 	nextTransactionId uint64
 }
 
@@ -20,6 +21,7 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	if err != nil {
 		return err
 	}
+	WriteAheadLog.FileName = fileName
 	WriteAheadLog.refreshCache()
 
 	walReader := WalReader{}
@@ -47,16 +49,29 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 }
 
 func (WriteAheadLog *WriteAheadLog) refreshCache() {
-	WriteAheadLog.Cache = make(map[uint64][]Transaction)
+	WriteAheadLog.Cache = make(map[uint64][]*Transaction)
+}
+
+func (WriteAheadLog *WriteAheadLog) clearFromMemory() error {
+	err := WriteAheadLog.closeFile()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(WriteAheadLog.FileName)
+	if err != nil {
+		return err
+	}
+	err = WriteAheadLog.Initialize(WriteAheadLog.FileName)
+	return err
 }
 
 func (writeAheadLog *WriteAheadLog) addCache(transaction Transaction) {
 	for _, body := range transaction.Body {
 		if writeAheadLog.Cache[body.PageId] == nil {
-			writeAheadLog.Cache[body.PageId] = make([]Transaction, 0)
+			writeAheadLog.Cache[body.PageId] = make([]*Transaction, 0)
 		}
 
-		writeAheadLog.Cache[body.PageId] = append(writeAheadLog.Cache[body.PageId], transaction)
+		writeAheadLog.Cache[body.PageId] = append(writeAheadLog.Cache[body.PageId], &transaction)
 	}
 }
 
@@ -87,6 +102,6 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) e
 	return nil
 }
 
-func (WriteAheadLog *WriteAheadLog) closeFile() {
-	WriteAheadLog.Log.Close()
+func (WriteAheadLog *WriteAheadLog) closeFile() error {
+	return WriteAheadLog.Log.Close()
 }

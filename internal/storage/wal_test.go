@@ -10,7 +10,7 @@ import (
 func newWal(t *testing.T) *WriteAheadLog {
 
 	writeAheadLog := &WriteAheadLog{}
-	err := writeAheadLog.Initialize("wal.log")
+	err := writeAheadLog.Initialize("test.log")
 	if err != nil {
 		t.Fatal("Failed to initialize wal :", err)
 	}
@@ -18,7 +18,7 @@ func newWal(t *testing.T) *WriteAheadLog {
 }
 
 func TestAppendRead(t *testing.T) {
-	os.Remove("wal.log")
+	os.Remove("test.log")
 	wal := newWal(t)
 	defer wal.closeFile()
 
@@ -70,7 +70,7 @@ func TestAppendRead(t *testing.T) {
 }
 
 func TestReadingAtStartup(t *testing.T) {
-	os.Remove("wal.log")
+	os.Remove("test.log")
 	wal := newWal(t)
 	defer wal.closeFile()
 
@@ -118,7 +118,7 @@ func TestReadingAtStartup(t *testing.T) {
 }
 
 func TestTruncate(t *testing.T) {
-	os.Remove("wal.log")
+	os.Remove("test.log")
 	wal := newWal(t)
 	defer wal.closeFile()
 
