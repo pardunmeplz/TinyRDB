@@ -6,6 +6,7 @@ type DatabaseManager struct {
 	database  map[uint64]PageData
 	wal       WriteAheadLog
 	allocator PageAllocator
+	test      bool
 }
 
 type PageDelta struct {
@@ -30,7 +31,8 @@ func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error)
 	if ok {
 		return data, nil
 	}
-	data, err := DatabaseManager.loadPageFromMemory(pageId)
+	data, err := DatabaseManager.loadPageFromDisc(pageId)
+	DatabaseManager.database[pageId] = data
 
 	return data, err
 }
@@ -45,7 +47,8 @@ func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, 
 		data, ok := DatabaseManager.database[pageDelta.pageId]
 		if !ok {
 			var err error
-			data, err = DatabaseManager.loadPageFromMemory(pageDelta.pageId)
+			data, err = DatabaseManager.loadPageFromDisc(pageDelta.pageId)
+			DatabaseManager.database[pageDelta.pageId] = data
 			if err != nil {
 				return err, 0
 			}
@@ -78,7 +81,7 @@ func (DatabaseManager *DatabaseManager) Shutdown() {
 	DatabaseManager.allocator.CloseFile()
 }
 
-func (DatabaseManager *DatabaseManager) loadPageFromMemory(pageId uint64) (PageData, error) {
+func (DatabaseManager *DatabaseManager) loadPageFromDisc(pageId uint64) (PageData, error) {
 
 	data, err := DatabaseManager.allocator.ReadPageData(pageId)
 	if err != nil {
@@ -99,8 +102,28 @@ func (DatabaseManager *DatabaseManager) loadPageFromMemory(pageId uint64) (PageD
 		}
 	}
 
-	DatabaseManager.database[pageId] = data
 	return data, nil
+}
+
+func (DatabaseManager *DatabaseManager) flushCheckpoint() error {
+	var data PageData
+	for pageId := range DatabaseManager.wal.Cache {
+		var ok bool
+		data, ok = DatabaseManager.database[pageId]
+		if !ok {
+			var err error
+			data, err = DatabaseManager.loadPageFromDisc(pageId)
+			if err != nil {
+				return err
+			}
+		}
+		err := DatabaseManager.allocator.WritePageData(pageId, data)
+		if err != nil {
+			return err
+		}
+	}
+	err := DatabaseManager.wal.clearFromDisc()
+	return err
 }
 
 func (DatabaseManager *DatabaseManager) applyDelta(change PageDelta) error {

@@ -52,7 +52,7 @@ func (WriteAheadLog *WriteAheadLog) refreshCache() {
 	WriteAheadLog.Cache = make(map[uint64][]*Transaction)
 }
 
-func (WriteAheadLog *WriteAheadLog) clearFromMemory() error {
+func (WriteAheadLog *WriteAheadLog) clearFromDisc() error {
 	err := WriteAheadLog.closeFile()
 	if err != nil {
 		return err
