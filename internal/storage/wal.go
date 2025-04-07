@@ -3,7 +3,6 @@ package storage
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 )
@@ -13,6 +12,7 @@ type WriteAheadLog struct {
 	FileName          string
 	Cache             map[uint64][]*Transaction
 	nextTransactionId uint64
+	fileSize          uint64
 }
 
 func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
@@ -45,6 +45,7 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 			continue
 		}
 		WriteAheadLog.addCache(transaction)
+		WriteAheadLog.fileSize = walReader.bytesRead
 	}
 }
 
@@ -91,7 +92,6 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (
 
 	data = binary.LittleEndian.AppendUint64(data, WriteAheadLog.nextTransactionId)
 	data = binary.LittleEndian.AppendUint32(data, getChecksumFromBytes(data))
-	fmt.Println(data)
 
 	_, err := WriteAheadLog.Log.Write(data)
 	if err != nil {
@@ -99,6 +99,7 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (
 	}
 
 	WriteAheadLog.nextTransactionId++
+	WriteAheadLog.fileSize += uint64(len(data))
 	return nil, WriteAheadLog.nextTransactionId - 1
 }
 

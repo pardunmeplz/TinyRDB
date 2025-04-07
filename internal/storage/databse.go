@@ -2,6 +2,10 @@ package storage
 
 import "fmt"
 
+const (
+	CHECKPOINT_SIZE_THRESHOLD = 10000
+)
+
 type DatabaseManager struct {
 	database  map[uint64]PageData
 	wal       WriteAheadLog
@@ -38,6 +42,12 @@ func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error)
 }
 
 func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, uint64) {
+	// checkpoint
+	err := DatabaseManager.checkpointTrigger()
+	if err != nil {
+		return err, 0
+	}
+
 	// make transaction
 	transaction := Transaction{}
 	transaction.MakeTransaction()
@@ -140,6 +150,13 @@ func (DatabaseManager *DatabaseManager) applyDelta(change PageDelta) error {
 	// apply delta
 	for i, b := range change.newData {
 		DatabaseManager.database[change.pageId][change.offset+uint32(i)] = b
+	}
+	return nil
+}
+
+func (DatabaseManager *DatabaseManager) checkpointTrigger() error {
+	if DatabaseManager.wal.fileSize >= CHECKPOINT_SIZE_THRESHOLD {
+		return DatabaseManager.flushCheckpoint()
 	}
 	return nil
 }
