@@ -4,13 +4,22 @@ import "fmt"
 
 const (
 	CHECKPOINT_SIZE_THRESHOLD = 10000
+	CACHE_CAPACITY_PAGES      = 32000
 )
 
 type DatabaseManager struct {
-	database  map[uint64]PageData
+	database  map[uint64]*CacheEntry
+	head      *CacheEntry
+	tail      *CacheEntry
 	wal       WriteAheadLog
 	allocator PageAllocator
 	test      bool
+}
+
+type CacheEntry struct {
+	data PageData
+	next *CacheEntry
+	prev *CacheEntry
 }
 
 type PageDelta struct {
@@ -21,7 +30,7 @@ type PageDelta struct {
 }
 
 func (databaseManager *DatabaseManager) Initialize() error {
-	databaseManager.database = make(map[uint64]PageData)
+	databaseManager.database = make(map[uint64]*CacheEntry)
 	err := databaseManager.wal.Initialize("wal.log")
 	if err != nil {
 		return err
@@ -31,12 +40,13 @@ func (databaseManager *DatabaseManager) Initialize() error {
 }
 
 func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error) {
-	data, ok := DatabaseManager.database[pageId]
+	entry, ok := DatabaseManager.database[pageId]
 	if ok {
-		return data, nil
+		DatabaseManager.makeHead(pageId)
+		return entry.data, nil
 	}
 	data, err := DatabaseManager.loadPageFromDisc(pageId)
-	DatabaseManager.database[pageId] = data
+	DatabaseManager.addCacheData(data, pageId)
 
 	return data, err
 }
@@ -54,15 +64,20 @@ func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, 
 	transaction.Header.pageCount = uint32(len(changes))
 	for _, pageDelta := range changes {
 		// load page
-		data, ok := DatabaseManager.database[pageDelta.pageId]
+		entry, ok := DatabaseManager.database[pageDelta.pageId]
 		if !ok {
 			var err error
-			data, err = DatabaseManager.loadPageFromDisc(pageDelta.pageId)
-			DatabaseManager.database[pageDelta.pageId] = data
+			data, err := DatabaseManager.loadPageFromDisc(pageDelta.pageId)
+			DatabaseManager.addCacheData(data, pageDelta.pageId)
+			entry.data = data
 			if err != nil {
 				return err, 0
 			}
+		} else {
+			DatabaseManager.makeHead(pageDelta.pageId)
 		}
+		data := entry.data
+
 		// add delta to body
 		body := PageEntry{}
 		body.PageId = pageDelta.pageId
@@ -118,8 +133,8 @@ func (DatabaseManager *DatabaseManager) loadPageFromDisc(pageId uint64) (PageDat
 func (DatabaseManager *DatabaseManager) flushCheckpoint() error {
 	var data PageData
 	for pageId := range DatabaseManager.wal.Cache {
-		var ok bool
-		data, ok = DatabaseManager.database[pageId]
+		entry, ok := DatabaseManager.database[pageId]
+		data = entry.data
 		if !ok {
 			var err error
 			data, err = DatabaseManager.loadPageFromDisc(pageId)
@@ -138,10 +153,11 @@ func (DatabaseManager *DatabaseManager) flushCheckpoint() error {
 
 func (DatabaseManager *DatabaseManager) applyDelta(change PageDelta) error {
 	// check if page exists
-	data, ok := DatabaseManager.database[change.pageId]
+	entry, ok := DatabaseManager.database[change.pageId]
 	if !ok {
 		return fmt.Errorf("page not found in memory for page id %d", change.pageId)
 	}
+	data := entry.data
 	// check for bounds
 	end := int(change.offset) + len(change.newData)
 	if end > len(data) {
@@ -149,7 +165,7 @@ func (DatabaseManager *DatabaseManager) applyDelta(change PageDelta) error {
 	}
 	// apply delta
 	for i, b := range change.newData {
-		DatabaseManager.database[change.pageId][change.offset+uint32(i)] = b
+		DatabaseManager.database[change.pageId].data[change.offset+uint32(i)] = b
 	}
 	return nil
 }
@@ -159,4 +175,54 @@ func (DatabaseManager *DatabaseManager) checkpointTrigger() error {
 		return DatabaseManager.flushCheckpoint()
 	}
 	return nil
+}
+
+func (DatabaseManager *DatabaseManager) addCacheData(data PageData, pageId uint64) {
+	if len(DatabaseManager.database) >= CACHE_CAPACITY_PAGES {
+		DatabaseManager.removeTail()
+	}
+	newEntry := CacheEntry{data, nil, DatabaseManager.head}
+	if DatabaseManager.head != nil {
+		DatabaseManager.head.next = &newEntry
+	} else {
+		DatabaseManager.tail = &newEntry
+	}
+	DatabaseManager.database[pageId] = &newEntry
+	DatabaseManager.head = &newEntry
+
+}
+
+func (DatabaseManager *DatabaseManager) makeHead(pageId uint64) {
+	if DatabaseManager.database[pageId].next != nil {
+		DatabaseManager.database[pageId].next.prev = DatabaseManager.database[pageId].prev
+	}
+	if DatabaseManager.database[pageId].prev != nil {
+		DatabaseManager.database[pageId].prev.next = DatabaseManager.database[pageId].next
+	}
+	DatabaseManager.database[pageId].prev = DatabaseManager.head
+	DatabaseManager.database[pageId].next = nil
+	DatabaseManager.head = DatabaseManager.database[pageId]
+}
+
+func (DatabaseManager *DatabaseManager) removeTail() {
+	tail := DatabaseManager.tail
+	if tail == nil {
+		return
+	}
+
+	for pageId, entry := range DatabaseManager.database {
+		if tail == entry {
+			delete(DatabaseManager.database, pageId)
+			break
+		}
+	}
+
+	if tail.next == nil {
+		DatabaseManager.tail = tail.next
+		DatabaseManager.tail.prev = nil
+	} else {
+		DatabaseManager.head = nil
+		DatabaseManager.tail = nil
+	}
+
 }
