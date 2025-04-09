@@ -25,7 +25,6 @@ type CacheEntry struct {
 type PageDelta struct {
 	pageId  uint64
 	offset  uint32
-	oldData []byte
 	newData []byte
 }
 
@@ -51,11 +50,11 @@ func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error)
 	return data, err
 }
 
-func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, uint64) {
+func (DatabaseManager *DatabaseManager) WritePages(changes []PageDelta) (uint64, error) {
 	// checkpoint
 	err := DatabaseManager.checkpointTrigger()
 	if err != nil {
-		return err, 0
+		return 0, err
 	}
 
 	// make transaction
@@ -65,18 +64,19 @@ func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, 
 	for _, pageDelta := range changes {
 		// load page
 		entry, ok := DatabaseManager.database[pageDelta.pageId]
+		var data PageData
 		if !ok {
 			var err error
-			data, err := DatabaseManager.loadPageFromDisc(pageDelta.pageId)
-			DatabaseManager.addCacheData(data, pageDelta.pageId)
-			entry.data = data
+			discData, err := DatabaseManager.loadPageFromDisc(pageDelta.pageId)
+			DatabaseManager.addCacheData(discData, pageDelta.pageId)
+			data = discData
 			if err != nil {
-				return err, 0
+				return 0, err
 			}
 		} else {
 			DatabaseManager.makeHead(pageDelta.pageId)
+			data = entry.data
 		}
-		data := entry.data
 
 		// add delta to body
 		body := PageEntry{}
@@ -87,7 +87,7 @@ func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, 
 
 		end := int(pageDelta.offset) + len(pageDelta.newData)
 		if end > len(data) {
-			return fmt.Errorf("delta out of bounds on page %d", pageDelta.pageId), 0
+			return 0, fmt.Errorf("delta out of bounds on page %d", pageDelta.pageId)
 		}
 		body.OldData = data[pageDelta.offset : body.Length+pageDelta.offset]
 		transaction.Body = append(transaction.Body, body)
@@ -98,7 +98,7 @@ func (DatabaseManager *DatabaseManager) writePages(changes []PageDelta) (error, 
 	}
 	err, transactionId := DatabaseManager.wal.AppendTransaction(transaction)
 
-	return err, transactionId
+	return transactionId, err
 }
 
 func (DatabaseManager *DatabaseManager) Shutdown() {
