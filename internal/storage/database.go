@@ -2,18 +2,18 @@ package storage
 
 import "fmt"
 
-const (
-	CHECKPOINT_SIZE_THRESHOLD = 10000
-	CACHE_CAPACITY_PAGES      = 32000
-)
+//CHECKPOINT_SIZE_THRESHOLD = 10000
+//CACHE_CAPACITY_PAGES      = 32000
 
 type DatabaseManager struct {
-	database  map[uint64]*CacheEntry
-	head      *CacheEntry
-	tail      *CacheEntry
-	wal       WriteAheadLog
-	allocator PageAllocator
-	test      bool
+	database                map[uint64]*CacheEntry
+	head                    *CacheEntry
+	tail                    *CacheEntry
+	wal                     WriteAheadLog
+	allocator               PageAllocator
+	test                    bool
+	cacheCapacityPages      int
+	checkpointSizeThreshold uint64
 }
 
 type CacheEntry struct {
@@ -28,14 +28,20 @@ type PageDelta struct {
 	newData []byte
 }
 
-func (databaseManager *DatabaseManager) Initialize() error {
+func (databaseManager *DatabaseManager) Initialize(checkpointTresholdInBytes uint64, cacheCapacityInPages int) error {
 	databaseManager.database = make(map[uint64]*CacheEntry)
 	err := databaseManager.wal.Initialize("wal.log")
 	if err != nil {
 		return err
 	}
 	err = databaseManager.allocator.Initialize("data.db")
+	databaseManager.cacheCapacityPages = cacheCapacityInPages
+	databaseManager.checkpointSizeThreshold = checkpointTresholdInBytes
 	return err
+}
+
+func (DatabaseManager *DatabaseManager) allocatePage(pageType byte) (uint64, error) {
+	return DatabaseManager.allocator.AllocatePage(pageType)
 }
 
 func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error) {
@@ -171,14 +177,14 @@ func (DatabaseManager *DatabaseManager) applyDelta(change PageDelta) error {
 }
 
 func (DatabaseManager *DatabaseManager) checkpointTrigger() error {
-	if DatabaseManager.wal.fileSize >= CHECKPOINT_SIZE_THRESHOLD {
+	if DatabaseManager.wal.fileSize >= DatabaseManager.checkpointSizeThreshold {
 		return DatabaseManager.flushCheckpoint()
 	}
 	return nil
 }
 
 func (DatabaseManager *DatabaseManager) addCacheData(data PageData, pageId uint64) {
-	if len(DatabaseManager.database) >= CACHE_CAPACITY_PAGES {
+	if len(DatabaseManager.database) >= DatabaseManager.cacheCapacityPages {
 		DatabaseManager.removeTail()
 	}
 	newEntry := CacheEntry{data, nil, DatabaseManager.head}
@@ -217,7 +223,7 @@ func (DatabaseManager *DatabaseManager) removeTail() {
 		}
 	}
 
-	if tail.next == nil {
+	if tail.next != nil {
 		DatabaseManager.tail = tail.next
 		DatabaseManager.tail.prev = nil
 	} else {

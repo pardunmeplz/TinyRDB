@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func newDatabase(t *testing.T) *DatabaseManager {
+func newDatabase(t *testing.T, checkPointTrigger uint64, cacheSize int) *DatabaseManager {
 	DatabaseManager := &DatabaseManager{}
-	err := DatabaseManager.Initialize()
+	err := DatabaseManager.Initialize(checkPointTrigger, cacheSize)
 	if err != nil {
 		t.Fatal("Failed to initialize database :", err)
 	}
@@ -29,7 +29,7 @@ func newDatabase(t *testing.T) *DatabaseManager {
 func TestPageWriteAndRecovery(t *testing.T) {
 	os.Remove("test.log")
 	os.Remove("test.db")
-	DatabaseManager := newDatabase(t)
+	DatabaseManager := newDatabase(t, 10000, 32000)
 	defer DatabaseManager.Shutdown()
 
 	// allocate some pages
@@ -75,7 +75,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 
 	DatabaseManager.Shutdown()
 
-	DatabaseManager = newDatabase(t)
+	DatabaseManager = newDatabase(t, 10000, 32000)
 	defer DatabaseManager.Shutdown()
 	// try read back after a shutdown and restart
 	for _, id := range pageIDs {
@@ -104,7 +104,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 
 	DatabaseManager.Shutdown()
 
-	DatabaseManager = newDatabase(t)
+	DatabaseManager = newDatabase(t, 10000, 32000)
 	defer DatabaseManager.Shutdown()
 	// try read back after a checkpoint and shutdown
 	for _, id := range pageIDs {
@@ -118,4 +118,55 @@ func TestPageWriteAndRecovery(t *testing.T) {
 		}
 	}
 
+}
+
+func TestCacheEviction(t *testing.T) {
+	os.Remove("test.log")
+	os.Remove("test.db")
+	DatabaseManager := newDatabase(t, 10000, 3)
+	defer DatabaseManager.Shutdown()
+
+	// allocate some pages
+	PageCount := 5
+	pageIDs := []uint64{}
+	for i := 0; i < PageCount; i++ {
+		pageID, err := DatabaseManager.allocator.AllocatePage(PagetypeUserdata)
+		if err != nil {
+			t.Fatal("Page allocation failed:", err)
+		}
+		pageIDs = append(pageIDs, pageID)
+	}
+
+	// Write random data to pages
+	pageData := make(map[uint64]PageData)
+	for _, id := range pageIDs {
+		data := MakePageData()
+		rand.Read(data[:])
+		_, err := DatabaseManager.WritePages([]PageDelta{
+			{
+				id,
+				0,
+				data[:],
+			},
+		})
+		if err != nil {
+			t.Fatal("Write failed for page", id, ":", err)
+		}
+		pageData[id] = data
+	}
+
+	readData, ok := DatabaseManager.database[pageIDs[4]]
+
+	if !ok {
+		t.Fatal("Page 4 was not retained in cache")
+	}
+
+	if string(readData.data[:]) != string(pageData[pageIDs[4]][:]) {
+		t.Error("Data mismatch for page", pageData[pageIDs[4]])
+	}
+
+	readData, ok = DatabaseManager.database[pageIDs[0]]
+	if ok {
+		t.Fatal("Page 0 was not removed from cache")
+	}
 }
