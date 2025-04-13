@@ -1,5 +1,7 @@
 package table
 
+import "encoding/binary"
+
 const (
 	TYPE_INT = iota
 )
@@ -11,7 +13,16 @@ var TYPE_MAP = []TypeInfo{
 		true,
 		false,
 		4,
-		getBinaryInt,
+		func(data any) ([]byte, bool) {
+			value, ok := data.(int32)
+			if !ok {
+				return []byte{}, false
+			}
+			return binary.LittleEndian.AppendUint32([]byte{}, uint32(value)), true
+		},
+		func(data []byte) any {
+			return int32(binary.LittleEndian.Uint32(data))
+		},
 	},
 }
 
@@ -20,9 +31,6 @@ type TypeInfo struct {
 	fixed           bool  // does the type support variable size like varchar
 	allowUserLength bool  // does it allow user defined sizes like char(6)
 	defaultSize     int32 // in bytes
-	getBinary       func(TypeInfo) []byte
-}
-
-func getBinaryInt(typeInfo TypeInfo) []byte {
-	return []byte{}
+	getBinary       func(any) ([]byte, bool)
+	readBinary      func([]byte) any
 }

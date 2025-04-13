@@ -9,8 +9,8 @@ type Column struct {
 	name     string
 	datatype byte
 	nullable bool
-	length   int32
-	offset   int
+	length   int32 // length of column in bytes
+	offset   int   // offset in bytes from start of rowdata including null bitmap
 }
 
 type Schema struct {
@@ -20,18 +20,12 @@ type Schema struct {
 	columns     []Column
 }
 
-func (schema *Schema) SetColumns(columns []Column) {
-	schema.columns = columns
-	schema.columnCount = byte(len(columns))
-	schema.bitmapSize = int(math.Ceil(float64(len(schema.columns) / 8)))
-	schema.rowSize = schema.bitmapSize
-	for i, column := range schema.columns {
-		schema.columns[i].offset = schema.rowSize
-		if TYPE_MAP[column.datatype].allowUserLength && column.length != -1 {
-			schema.rowSize += int(column.length * TYPE_MAP[column.datatype].defaultSize)
-		} else {
-			schema.rowSize += int(TYPE_MAP[column.datatype].defaultSize)
-		}
+func (column *Column) SetDataType(dataType byte, length int32) {
+	column.datatype = dataType
+	if TYPE_MAP[dataType].allowUserLength {
+		column.length = TYPE_MAP[dataType].defaultSize * length
+	} else {
+		column.length = TYPE_MAP[dataType].defaultSize
 	}
 }
 
@@ -70,9 +64,22 @@ func (column *Column) ReadBinary(data []byte) int {
 	if TYPE_MAP[column.datatype].allowUserLength {
 		column.length = int32(binary.LittleEndian.Uint16(data[bytesRead:]))
 		bytesRead += 2
+	} else {
+		column.length = TYPE_MAP[column.datatype].defaultSize
 	}
 
 	return bytesRead
+}
+
+func (schema *Schema) SetColumns(columns []Column) {
+	schema.columns = columns
+	schema.columnCount = byte(len(columns))
+	schema.bitmapSize = int(math.Ceil(float64(len(schema.columns) / 8)))
+	schema.rowSize = schema.bitmapSize
+	for i, column := range schema.columns {
+		schema.columns[i].offset = schema.rowSize
+		schema.rowSize += int(column.length)
+	}
 }
 
 func (schema *Schema) GetBinary() []byte {
