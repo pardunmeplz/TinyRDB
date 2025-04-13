@@ -36,6 +36,7 @@ func (schema *Schema) SetColumns(columns []Column) {
 
 func (column *Column) GetBinary() []byte {
 	response := []byte{}
+	response = append(response, byte(len(column.name)))
 	response = append(response, column.name...)
 	response = append(response, column.datatype)
 	if column.nullable {
@@ -45,10 +46,33 @@ func (column *Column) GetBinary() []byte {
 	}
 
 	if TYPE_MAP[column.datatype].allowUserLength {
-		response = binary.LittleEndian.AppendUint32(response, uint32(column.length))
+		response = binary.LittleEndian.AppendUint16(response, uint16(column.length))
 	}
 
 	return response
+}
+
+func (column *Column) ReadBinary(data []byte, offset int) int {
+	bytesRead := 0
+	nameLen := data[0]
+	bytesRead++
+
+	column.name = string(data[bytesRead : bytesRead+int(nameLen)])
+	bytesRead += int(nameLen)
+
+	column.datatype = data[nameLen]
+	bytesRead++
+
+	column.nullable = data[nameLen+1] == 1
+	bytesRead++
+
+	if TYPE_MAP[column.datatype].allowUserLength {
+		column.length = int32(binary.LittleEndian.Uint16(data[bytesRead:]))
+		bytesRead += 2
+	}
+	column.offset = offset
+
+	return bytesRead
 }
 
 func (schema *Schema) GetBinary() []byte {
