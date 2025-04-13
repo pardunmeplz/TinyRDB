@@ -24,8 +24,9 @@ func (schema *Schema) SetColumns(columns []Column) {
 	schema.columns = columns
 	schema.columnCount = byte(len(columns))
 	schema.bitmapSize = int(math.Ceil(float64(len(schema.columns) / 8)))
-	schema.rowSize = 0
-	for _, column := range columns {
+	schema.rowSize = schema.bitmapSize
+	for i, column := range schema.columns {
+		schema.columns[i].offset = schema.rowSize
 		if TYPE_MAP[column.datatype].allowUserLength && column.length != -1 {
 			schema.rowSize += int(column.length * TYPE_MAP[column.datatype].defaultSize)
 		} else {
@@ -52,7 +53,7 @@ func (column *Column) GetBinary() []byte {
 	return response
 }
 
-func (column *Column) ReadBinary(data []byte, offset int) int {
+func (column *Column) ReadBinary(data []byte) int {
 	bytesRead := 0
 	nameLen := data[0]
 	bytesRead++
@@ -70,7 +71,6 @@ func (column *Column) ReadBinary(data []byte, offset int) int {
 		column.length = int32(binary.LittleEndian.Uint16(data[bytesRead:]))
 		bytesRead += 2
 	}
-	column.offset = offset
 
 	return bytesRead
 }
@@ -83,4 +83,19 @@ func (schema *Schema) GetBinary() []byte {
 	}
 
 	return response
+}
+
+func (schema *Schema) ReadBinary(data []byte) {
+	bytesRead := 0
+	columnCount := data[0]
+	bytesRead++
+
+	columns := []Column{}
+	for i := 0; i < int(columnCount); i++ {
+		column := Column{}
+		bytesRead += column.ReadBinary(data[bytesRead:])
+		columns = append(columns, column)
+	}
+
+	schema.SetColumns(columns)
 }
