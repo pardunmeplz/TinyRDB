@@ -44,6 +44,10 @@ const (
 	PagetypeMetadata = iota
 	PagetypeUserdata
 	PagetypeFreepage
+	PagetypeSchema
+	PagetypeTableData
+	PageTypeOverflow
+	PageTypeIndex
 )
 
 const DefaultPageSize = 4096

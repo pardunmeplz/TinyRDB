@@ -40,11 +40,11 @@ func (databaseManager *DatabaseManager) Initialize(checkpointTresholdInBytes uin
 	return err
 }
 
-func (DatabaseManager *DatabaseManager) allocatePage(pageType byte) (uint64, error) {
+func (DatabaseManager *DatabaseManager) AllocatePage(pageType byte) (uint64, error) {
 	return DatabaseManager.allocator.AllocatePage(pageType)
 }
 
-func (DatabaseManager *DatabaseManager) getPage(pageId uint64) (PageData, error) {
+func (DatabaseManager *DatabaseManager) GetPage(pageId uint64) (PageData, error) {
 	entry, ok := DatabaseManager.database[pageId]
 	if ok {
 		DatabaseManager.makeHead(pageId)

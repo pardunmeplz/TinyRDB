@@ -99,7 +99,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 
 	// Read back and verify the data
 	for _, id := range pageIDs {
-		readData, err := DatabaseManager.getPage(id)
+		readData, err := DatabaseManager.GetPage(id)
 		if err != nil {
 			t.Fatal("Read failed for page", id, ":", err)
 		}
@@ -115,7 +115,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 	defer DatabaseManager.Shutdown()
 	// try read back after a shutdown and restart
 	for _, id := range pageIDs {
-		readData, err := DatabaseManager.getPage(id)
+		readData, err := DatabaseManager.GetPage(id)
 		if err != nil {
 			t.Fatal("Read failed for page", id, ":", err)
 		}
@@ -128,7 +128,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 	DatabaseManager.flushCheckpoint()
 	// try read back after a checkpoint
 	for _, id := range pageIDs {
-		readData, err := DatabaseManager.getPage(id)
+		readData, err := DatabaseManager.GetPage(id)
 		if err != nil {
 			t.Fatal("Read failed for page", id, ":", err)
 		}
@@ -144,7 +144,7 @@ func TestPageWriteAndRecovery(t *testing.T) {
 	defer DatabaseManager.Shutdown()
 	// try read back after a checkpoint and shutdown
 	for _, id := range pageIDs {
-		readData, err := DatabaseManager.getPage(id)
+		readData, err := DatabaseManager.GetPage(id)
 		if err != nil {
 			t.Fatal("Read failed for page", id, ":", err)
 		}
@@ -206,7 +206,7 @@ func TestCacheEviction(t *testing.T) {
 		t.Fatal("Page 0 was not removed from cache")
 	}
 
-	readPage, err := DatabaseManager.getPage(pageIDs[0])
+	readPage, err := DatabaseManager.GetPage(pageIDs[0])
 	if err != nil {
 		t.Fatal("Failed to read page ", err)
 	}

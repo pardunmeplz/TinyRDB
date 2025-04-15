@@ -1,4 +1,4 @@
-package table
+package format
 
 type Row struct {
 	Bitmap  [32]byte
