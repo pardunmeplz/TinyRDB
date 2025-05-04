@@ -5,29 +5,42 @@ import "fmt"
 //CHECKPOINT_SIZE_THRESHOLD = 10000
 //CACHE_CAPACITY_PAGES      = 32000
 
+// DatabaseManager handles the core database operations including page management,
+// caching, and transaction handling. It implements ACID compliance through
+// write-ahead logging and checkpointing.
 type DatabaseManager struct {
-	database                map[uint64]*CacheEntry
-	head                    *CacheEntry
-	tail                    *CacheEntry
-	wal                     WriteAheadLog
-	allocator               PageAllocator
-	test                    bool
-	cacheCapacityPages      int
+	// database maps page IDs to their cache entries
+	database map[uint64]*CacheEntry
+	// head and tail maintain an LRU cache of pages
+	head *CacheEntry
+	tail *CacheEntry
+	// wal handles write-ahead logging for durability
+	wal WriteAheadLog
+	// allocator manages page allocation and deallocation
+	allocator PageAllocator
+	// test flag for testing purposes
+	test bool
+	// cacheCapacityPages limits the number of pages in memory
+	cacheCapacityPages int
+	// checkpointSizeThreshold triggers checkpoint when WAL reaches this size
 	checkpointSizeThreshold uint64
 }
 
+// CacheEntry represents a page in the LRU cache
 type CacheEntry struct {
 	data PageData
 	next *CacheEntry
 	prev *CacheEntry
 }
 
+// PageDelta represents a change to be made to a page
 type PageDelta struct {
-	pageId  uint64
-	offset  uint32
-	newData []byte
+	pageId  uint64 // ID of the page to modify
+	offset  uint32 // Starting offset in the page
+	newData []byte // New data to write
 }
 
+// Initialize sets up the database manager with specified cache and checkpoint parameters
 func (databaseManager *DatabaseManager) Initialize(checkpointTresholdInBytes uint64, cacheCapacityInPages int) error {
 	databaseManager.database = make(map[uint64]*CacheEntry)
 	err := databaseManager.wal.Initialize("wal.log")
@@ -40,10 +53,12 @@ func (databaseManager *DatabaseManager) Initialize(checkpointTresholdInBytes uin
 	return err
 }
 
+// AllocatePage allocates a new page of the specified type
 func (DatabaseManager *DatabaseManager) AllocatePage(pageType byte) (uint64, error) {
 	return DatabaseManager.allocator.AllocatePage(pageType)
 }
 
+// GetPage retrieves a page from cache or disk, applying any pending WAL changes
 func (DatabaseManager *DatabaseManager) GetPage(pageId uint64) (PageData, error) {
 	entry, ok := DatabaseManager.database[pageId]
 	if ok {
@@ -56,19 +71,23 @@ func (DatabaseManager *DatabaseManager) GetPage(pageId uint64) (PageData, error)
 	return data, err
 }
 
+// WritePages applies a set of changes to pages, ensuring ACID compliance
+// through WAL logging and checkpointing
 func (DatabaseManager *DatabaseManager) WritePages(changes []PageDelta) (uint64, error) {
-	// checkpoint
+	// Check if we need to perform a checkpoint
 	err := DatabaseManager.checkpointTrigger()
 	if err != nil {
 		return 0, err
 	}
 
-	// make transaction
+	// Create a new transaction
 	transaction := Transaction{}
 	transaction.MakeTransaction()
 	transaction.Header.pageCount = uint32(len(changes))
+
+	// Process each page change
 	for _, pageDelta := range changes {
-		// load page
+		// Load the page from cache or disk
 		entry, ok := DatabaseManager.database[pageDelta.pageId]
 		var data PageData
 		if !ok {
@@ -84,13 +103,14 @@ func (DatabaseManager *DatabaseManager) WritePages(changes []PageDelta) (uint64,
 			data = entry.data
 		}
 
-		// add delta to body
+		// Create WAL entry for the change
 		body := PageEntry{}
 		body.PageId = pageDelta.pageId
 		body.Offset = pageDelta.offset
 		body.Length = uint32(len(pageDelta.newData))
 		body.NewData = pageDelta.newData
 
+		// Validate the change is within page bounds
 		end := int(pageDelta.offset) + len(pageDelta.newData)
 		if end > len(data) {
 			return 0, fmt.Errorf("delta out of bounds on page %d", pageDelta.pageId)
@@ -99,9 +119,12 @@ func (DatabaseManager *DatabaseManager) WritePages(changes []PageDelta) (uint64,
 		transaction.Body = append(transaction.Body, body)
 	}
 
+	// Apply changes to pages
 	for _, pageDelta := range changes {
 		DatabaseManager.applyDelta(pageDelta)
 	}
+
+	// Log the transaction to WAL
 	err, transactionId := DatabaseManager.wal.AppendTransaction(transaction)
 
 	return transactionId, err
@@ -112,13 +135,14 @@ func (DatabaseManager *DatabaseManager) Shutdown() {
 	DatabaseManager.allocator.CloseFile()
 }
 
+// loadPageFromDisc loads a page from disk and applies any pending WAL changes
 func (DatabaseManager *DatabaseManager) loadPageFromDisc(pageId uint64) (PageData, error) {
-
 	data, err := DatabaseManager.allocator.ReadPageData(pageId)
 	if err != nil {
 		return data, err
 	}
 
+	// Apply any pending WAL changes to the page
 	walEntries, ok := DatabaseManager.wal.Cache[pageId]
 	if ok {
 		for _, e := range walEntries {
@@ -136,6 +160,7 @@ func (DatabaseManager *DatabaseManager) loadPageFromDisc(pageId uint64) (PageDat
 	return data, nil
 }
 
+// flushCheckpoint writes all dirty pages to disk and clears the WAL
 func (DatabaseManager *DatabaseManager) flushCheckpoint() error {
 	var data PageData
 	for pageId := range DatabaseManager.wal.Cache {

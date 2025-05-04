@@ -7,14 +7,20 @@ import (
 	"os"
 )
 
+// WriteAheadLog implements the write-ahead logging mechanism for ensuring
+// database durability and crash recovery. It maintains a log of all
+// transactions and their changes to pages.
 type WriteAheadLog struct {
-	Log               *os.File
-	FileName          string
-	Cache             map[uint64][]*Transaction
-	nextTransactionId uint64
-	fileSize          uint64
+	Log               *os.File                  // The log file handle
+	FileName          string                    // Name of the log file
+	Cache             map[uint64][]*Transaction // In-memory cache of transactions by page ID
+	nextTransactionId uint64                    // Next transaction ID to assign
+	fileSize          uint64                    // Current size of the log file
 }
 
+// Initialize sets up the WAL by opening the log file and recovering
+// any existing transactions from disk. It validates transaction checksums
+// and rebuilds the in-memory cache.
 func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	var err error
 	WriteAheadLog.Log, err = os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0666)
@@ -24,6 +30,7 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	WriteAheadLog.FileName = fileName
 	WriteAheadLog.refreshCache()
 
+	// Read and validate existing transactions
 	walReader := WalReader{}
 	walReader.initialize(WriteAheadLog)
 	offset := walReader.bytesRead
@@ -31,6 +38,7 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 		offset = walReader.bytesRead
 		transaction, err := walReader.getTransaction()
 		if err != nil {
+			// Truncate log at last valid transaction
 			error := WriteAheadLog.Log.Truncate(int64(offset))
 			if error != nil {
 				return error
@@ -40,6 +48,7 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 			}
 			return err
 		}
+		// Validate transaction checksum
 		_, _, ok := transaction.checkSum()
 		if !ok {
 			continue
@@ -49,10 +58,13 @@ func (WriteAheadLog *WriteAheadLog) Initialize(fileName string) error {
 	}
 }
 
+// refreshCache clears the in-memory transaction cache
 func (WriteAheadLog *WriteAheadLog) refreshCache() {
 	WriteAheadLog.Cache = make(map[uint64][]*Transaction)
 }
 
+// clearFromDisc removes the current log file and creates a new one.
+// This is typically called after a successful checkpoint.
 func (WriteAheadLog *WriteAheadLog) clearFromDisc() error {
 	err := WriteAheadLog.closeFile()
 	if err != nil {
@@ -66,6 +78,8 @@ func (WriteAheadLog *WriteAheadLog) clearFromDisc() error {
 	return err
 }
 
+// addCache adds a transaction to the in-memory cache, organizing
+// it by the pages it modifies for efficient recovery
 func (writeAheadLog *WriteAheadLog) addCache(transaction Transaction) {
 	for _, body := range transaction.Body {
 		if writeAheadLog.Cache[body.PageId] == nil {
@@ -76,10 +90,19 @@ func (writeAheadLog *WriteAheadLog) addCache(transaction Transaction) {
 	}
 }
 
+// AppendTransaction writes a new transaction to the log file.
+// It includes:
+// - Transaction ID
+// - Number of pages modified
+// - For each page: ID, offset, length, old data, new data
+// - Transaction ID (repeated for validation)
+// - Checksum
 func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (error, uint64) {
+	// Write transaction header
 	data := binary.LittleEndian.AppendUint64([]byte{}, WriteAheadLog.nextTransactionId)
 	data = binary.LittleEndian.AppendUint32(data, transaction.Header.pageCount)
 
+	// Write each page modification
 	for _, page := range transaction.Body {
 		data = binary.LittleEndian.AppendUint64(data, page.PageId)
 		data = binary.LittleEndian.AppendUint32(data, page.Offset)
@@ -90,9 +113,11 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (
 		WriteAheadLog.addCache(transaction)
 	}
 
+	// Write transaction footer (ID and checksum)
 	data = binary.LittleEndian.AppendUint64(data, WriteAheadLog.nextTransactionId)
 	data = binary.LittleEndian.AppendUint32(data, getChecksumFromBytes(data))
 
+	// Write to log file
 	_, err := WriteAheadLog.Log.Write(data)
 	if err != nil {
 		return err, WriteAheadLog.nextTransactionId
@@ -103,6 +128,7 @@ func (WriteAheadLog *WriteAheadLog) AppendTransaction(transaction Transaction) (
 	return nil, WriteAheadLog.nextTransactionId - 1
 }
 
+// closeFile closes the log file handle
 func (WriteAheadLog *WriteAheadLog) closeFile() error {
 	return WriteAheadLog.Log.Close()
 }
